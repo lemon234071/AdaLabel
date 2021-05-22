@@ -1,6 +1,7 @@
 """ Report manager utility """
 from __future__ import print_function
 import time
+import math
 from datetime import datetime
 
 import onmt
@@ -146,8 +147,15 @@ class ReportMgr(ReportMgrBase):
                                        step)
 
         if valid_stats is not None:
+            # self.log('Validation perplexity: %g' % valid_stats.ppl())
+            # self.log('Validation accuracy: %g' % valid_stats.accuracy())
+
+            self.log('Validation loss: %g' % valid_stats.xent())
             self.log('Validation perplexity: %g' % valid_stats.ppl())
             self.log('Validation accuracy: %g' % valid_stats.accuracy())
+            self.log('Validation label loss: %g' % (valid_stats.bidec_loss / valid_stats.n_words))
+            self.log('Validation label perplexity: %g' % math.exp(min(valid_stats.bidec_loss / valid_stats.n_words, 100)))
+            self.log('Validation label accuracy: %g' % (100 * (valid_stats.bidec_num_correct / valid_stats.n_words)))
 
             self.maybe_log_tensorboard(valid_stats,
                                        "valid",

@@ -12,10 +12,11 @@ class NMTModel(nn.Module):
       decoder (onmt.decoders.DecoderBase): a decoder object
     """
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, encoder, decoder, bidecoder=None):
         super(NMTModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
+        self.bidecoder = bidecoder
 
     def forward(self, src, tgt, lengths, bptt=False):
         """Forward propagate a `src` and `tgt` pair for training.
@@ -45,8 +46,17 @@ class NMTModel(nn.Module):
             self.decoder.init_state(src, memory_bank, enc_state)
         dec_out, attns = self.decoder(tgt, memory_bank,
                                       memory_lengths=lengths)
-        return dec_out, attns
+        # bidecoder
+        bidec_out, bidec_attns = None, None
+        if self.bidecoder is not None:
+            if bptt is False:
+                self.bidecoder.init_state(src, memory_bank, enc_state)
+            bidec_out, bidec_attns = self.bidecoder(
+                tgt, memory_bank, memory_lengths=lengths)
+
+        return dec_out, attns, bidec_out, bidec_attns
 
     def update_dropout(self, dropout):
         self.encoder.update_dropout(dropout)
         self.decoder.update_dropout(dropout)
+        self.bidecoder.update_dropout(dropout)
