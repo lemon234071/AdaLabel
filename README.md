@@ -1,6 +1,6 @@
-This fork of OpenNMT-py is modified to suppoprt training of the AdaLab method in [Diversifying Dialog Generation via Adaptive Label Smoothing](). The differences can be viewed by comparing the [commits](). Note that this paper is developed from a relatively [old version](https://github.com/lemon234071/AdaLab/blob/master/ONMT_README.md) of OpenNMT-py, which was already the latest one at the time we started the project. Therefore, some new advanced features might not be supported. 
+This fork of OpenNMT-py is modified to suppoprt training of the AdaLab method in [Diversifying Dialog Generation via Adaptive Label Smoothing](). The differences can be viewed by comparing the [commits](https://github.com/lemon234071/AdaLab/commit/4b9531943a4e00f1ee8a7f4b8bf3554e2b1e0f41). Note that this paper is developed from a relatively [old version](https://github.com/lemon234071/AdaLab/blob/master/ONMT_README.md) of OpenNMT-py, which was already the latest one at the time we started the project. Therefore, some new advanced features might not be supported. 
 
-#AdaLab: Diversifying Dialog Generation via Adaptive Label Smoothing
+# AdaLab: Diversifying Dialog Generation via Adaptive Label Smoothing
 
 pytorch implementation
 
