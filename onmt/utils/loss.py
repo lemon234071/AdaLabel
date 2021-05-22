@@ -28,7 +28,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
 
     if opt.lambda_coverage != 0:
         assert opt.coverage_attn, "--coverage_attn needs to be set in " \
-            "order to use --lambda_coverage != 0"
+                                  "order to use --lambda_coverage != 0"
 
     if opt.copy_attn:
         criterion = onmt.modules.CopyGeneratorLoss(
@@ -38,6 +38,13 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     elif opt.label_smoothing > 0 and train:
         criterion = LabelSmoothingLoss(
             opt.label_smoothing, len(tgt_field.vocab), ignore_index=padding_idx
+        )
+    elif opt.adalab and train:
+        eos_idx = tgt_field.vocab.stoi[tgt_field.eos_token]
+        criterion = AdaLabLoss(
+            len(tgt_field.vocab),
+            opt.batch_size, ignore_index=padding_idx, reduction='sum',
+            use_beta=opt.use_beta, eos_index=eos_idx
         )
     elif isinstance(model.generator[-1], LogSparsemax):
         criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
@@ -56,8 +63,11 @@ def build_loss_compute(model, tgt_field, opt, train=True):
             lambda_coverage=opt.lambda_coverage
         )
     else:
-        compute = NMTLossCompute(
-            criterion, loss_gen, lambda_coverage=opt.lambda_coverage)
+        bidecoder_loss_gen = model.bidecoder_generator
+        compute = AdaLabLossCompute(
+            criterion, loss_gen, bidecoder_loss_gen, lambda_coverage=opt.lambda_coverage)
+        # compute = NMTLossCompute(
+        #     criterion, loss_gen, lambda_coverage=opt.lambda_coverage)
     compute.to(device)
 
     return compute
@@ -196,6 +206,7 @@ class LabelSmoothingLoss(nn.Module):
     KL-divergence between q_{smoothed ground truth prob.}(w)
     and p_{prob. computed by model}(w) is minimized.
     """
+
     def __init__(self, label_smoothing, tgt_vocab_size, ignore_index=-100):
         assert 0.0 < label_smoothing <= 1.0
         self.ignore_index = ignore_index
@@ -230,7 +241,7 @@ class NMTLossCompute(LossComputeBase):
         super(NMTLossCompute, self).__init__(criterion, generator)
         self.lambda_coverage = lambda_coverage
 
-    def _make_shard_state(self, batch, output, range_, attns=None):
+    def _make_shard_state(self, batch, output, bidec_output, range_, attns=None):
         shard_state = {
             "output": output,
             "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
@@ -240,9 +251,9 @@ class NMTLossCompute(LossComputeBase):
             std = attns.get("std", None)
             assert attns is not None
             assert std is not None, "lambda_coverage != 0.0 requires " \
-                "attention mechanism"
+                                    "attention mechanism"
             assert coverage is not None, "lambda_coverage != 0.0 requires " \
-                "coverage attention"
+                                         "coverage attention"
 
             shard_state.update({
                 "std_attn": attns.get("std"),
@@ -336,3 +347,233 @@ def shards(state, shard_size, eval_only=False):
                                      [v_chunk.grad for v_chunk in v_split]))
         inputs, grads = zip(*variables)
         torch.autograd.backward(inputs, grads)
+
+
+class AdaLabLossCompute(LossComputeBase):
+    """
+    Standard NMT Loss Computation.
+    """
+
+    def __init__(self, criterion, generator, bidecoder_generator, normalization="sents",
+                 lambda_coverage=0.0):
+        super(AdaLabLossCompute, self).__init__(criterion, generator)
+        self.lambda_coverage = lambda_coverage
+        self.bidecoder_generator = bidecoder_generator
+
+    def __call__(self,
+                 batch,
+                 output,
+                 attns,
+                 bidec_outputs,
+                 normalization=1.0,
+                 shard_size=0,
+                 trunc_start=0,
+                 trunc_size=None):
+        """Compute the forward loss, possibly in shards in which case this
+        method also runs the backward pass and returns ``None`` as the loss
+        value.
+
+        Also supports truncated BPTT for long sequences by taking a
+        range in the decoder output sequence to back propagate in.
+        Range is from `(trunc_start, trunc_start + trunc_size)`.
+
+        Note sharding is an exact efficiency trick to relieve memory
+        required for the generation buffers. Truncation is an
+        approximate efficiency trick to relieve the memory required
+        in the RNN buffers.
+
+        Args:
+          batch (batch) : batch of labeled examples
+          output (:obj:`FloatTensor`) :
+              output of decoder model `[tgt_len x batch x hidden]`
+          attns (dict) : dictionary of attention distributions
+              `[tgt_len x batch x src_len]`
+          normalization: Optional normalization factor.
+          shard_size (int) : maximum number of examples in a shard
+          trunc_start (int) : starting position of truncation window
+          trunc_size (int) : length of truncation window
+
+        Returns:
+            A tuple with the loss and a :obj:`onmt.utils.Statistics` instance.
+        """
+        if trunc_size is None:
+            trunc_size = batch.tgt.size(0) - trunc_start
+        trunc_range = (trunc_start, trunc_start + trunc_size)
+        shard_state = self._make_shard_state(batch, output, bidec_outputs, trunc_range, attns)
+        if shard_size == 0:
+            loss, stats = self._compute_loss(batch, **shard_state)
+            return loss / float(normalization), stats
+        batch_stats = onmt.utils.Statistics()
+        for shard in shards(shard_state, shard_size):
+            loss, stats = self._compute_loss(batch, **shard)
+            loss.div(float(normalization)).backward()
+            batch_stats.update(stats)
+        return None, batch_stats
+
+    def _make_shard_state(self, batch, output, bidec_output, range_, attns=None):
+        shard_state = {
+            "output": output,
+            "target": batch.tgt[range_[0] + 1: range_[1], :, 0],
+            "bidec_output": bidec_output,
+        }
+        if self.lambda_coverage != 0.0:
+            coverage = attns.get("coverage", None)
+            std = attns.get("std", None)
+            assert attns is not None
+            assert std is not None, "lambda_coverage != 0.0 requires " \
+                                    "attention mechanism"
+            assert coverage is not None, "lambda_coverage != 0.0 requires " \
+                                         "coverage attention"
+
+            shard_state.update({
+                "std_attn": attns.get("std"),
+                "coverage_attn": coverage
+            })
+        return shard_state
+
+    def _compute_loss(self, batch, output, bidec_output, target, std_attn=None,
+                      coverage_attn=None):
+
+        bottled_output = self._bottle(output)
+
+        scores = self.generator(bottled_output)
+        gtruth = target.view(-1)
+
+        if self.bidecoder_generator is not None and bidec_output is not None:
+            bidec_bottled_output = self._bottle(bidec_output)
+            bidec_scores = self.bidecoder_generator(bidec_bottled_output)
+            bidec_loss = F.cross_entropy(bidec_scores, gtruth,
+                                         ignore_index=self.criterion.ignore_index, reduction="sum")
+        else:
+            bidec_scores = None
+            bidec_loss = torch.tensor(0, device=gtruth.device)
+
+        if isinstance(self.criterion, AdaLabLoss):
+            loss = self.criterion(scores, gtruth, target, bidec_scores)
+            nll_loss = F.nll_loss(scores, gtruth,
+                                  ignore_index=self.criterion.ignore_index, reduction="sum")
+        else:
+            loss = self.criterion(scores, gtruth)
+            nll_loss = loss
+
+        # loss = self.criterion(scores, gtruth)
+        if self.lambda_coverage != 0.0:
+            coverage_loss = self._compute_coverage_loss(
+                std_attn=std_attn, coverage_attn=coverage_attn)
+            loss += coverage_loss
+        # stats = self._stats(loss.clone(), scores, gtruth)
+        stats = self._stats(loss.clone(), scores, gtruth,
+                            bidec_loss.clone(), bidec_scores, nll_loss.clone())
+
+        return loss + bidec_loss, stats
+
+    def _compute_coverage_loss(self, std_attn, coverage_attn):
+        covloss = torch.min(std_attn, coverage_attn).sum()
+        covloss *= self.lambda_coverage
+        return covloss
+
+    def _stats(self, loss, scores, target, bidec_loss, bidec_scores, nll_loss):
+        pred = scores.max(1)[1]
+        non_padding = target.ne(self.padding_idx)
+        num_correct = pred.eq(target).masked_select(non_padding).sum().item()
+        num_non_padding = non_padding.sum().item()
+
+        if bidec_scores is None:
+            bidec_num_correct = 0
+        else:
+            bidec_pred = bidec_scores.max(1)[1]
+            bidec_num_correct = bidec_pred.eq(target).masked_select(non_padding).sum().item()
+        return onmt.utils.Statistics(loss.item(), num_non_padding, num_correct,
+                                     bidec_loss.item(), bidec_num_correct, nll_loss.item())
+
+
+class AdaLabLoss(nn.Module):
+    """
+    With adaptive label smoothing,
+    KL-divergence between q_{smoothed ground truth prob.}(w)
+    and p_{prob. computed by model}(w) is minimized.
+    """
+
+    def __init__(self, tgt_vocab_size, batch_size, ignore_index=-100, device="cuda", reduction='sum',
+                 use_beta=False, eos_index=3):
+        self.ignore_index = ignore_index
+        self.eos_index = eos_index
+        self.tgt_vocab_size = tgt_vocab_size
+        super(AdaLabLoss, self).__init__()
+        self.device = device
+        self.batch_size = batch_size
+        self.reduction = reduction
+
+        self.step = 0
+        self.temperature = 1.5
+        self.top_head = 2
+        self.top_tail = 500
+        self.margin = 0.2
+        self.alpha_param = 2
+        self.beta_param = 0.1
+        self.use_beta = use_beta
+        self.topk = 5
+
+    def forward(self, output, target, tgt_batch=None, label_scores=None):
+        """
+        output (FloatTensor): batch_size x n_classes
+        target (LongTensor): batch_size
+        """
+        v = self._get_v(label_scores, target)
+        epsilon = self._get_epsilon(output, target, v)
+
+        confidence = 1 - epsilon
+        smoothing_penalty = epsilon.unsqueeze(-1) * v
+
+        model_prob = torch.zeros_like(output, device=output.device, dtype=torch.float)
+        model_prob.scatter_(1, target.unsqueeze(1), confidence.unsqueeze(1))
+        model_prob = model_prob + smoothing_penalty
+        model_prob.masked_fill_((target == self.ignore_index).unsqueeze(1), 0)
+
+        return F.kl_div(output, model_prob, reduction=self.reduction)
+
+    def _bottle(self, _v):
+        return _v.view(-1, _v.size(2))
+
+    def _unbottle(self, _v, batch_size):
+        return _v.view(-1, batch_size, _v.size(1))
+
+    def _get_epsilon(self, output, target, v):
+        probs = output.detach().clone().exp()
+        prob_max = probs.max(dim=1)[0]
+        prob_gtruth = probs.gather(dim=1, index=target.unsqueeze(1)).squeeze()
+        epsilon = 1 - prob_max
+        maxv = v.max(dim=-1)[0]
+        up_bond = 1 / (1 + maxv) - self.margin
+        mask = epsilon.gt(up_bond)
+        epsilon[mask] = up_bond[mask]
+        alpha = (prob_gtruth / prob_max).pow(self.alpha_param)
+        epsilon = alpha * epsilon
+        return epsilon
+
+    def _get_v(self, label_scores, target):
+        v = label_scores.detach().clone()
+        v = v / self.temperature
+        v.scatter_(1, target.unsqueeze(1), -float('inf'))
+        v[:, self.ignore_index] = -float('inf')
+
+        # truncate tail
+        upper_values, upper_indices = torch.topk(v, self.top_tail, dim=1)
+        kth_upper = upper_values[:, -1].view([-1, 1])
+        kth_upper = kth_upper.repeat([1, v.shape[1]]).float()
+        upper_ignore = torch.lt(v, kth_upper)
+        v = v.masked_fill(upper_ignore, -10000)
+
+        # truncate head
+        lower_values, lower_indices = torch.topk(v, self.top_head, dim=1)
+        kth_lower = lower_values[:, -1].view([-1, 1])
+        kth_lower = kth_lower.repeat([1, v.shape[1]]).float()
+        lower_ignore = torch.gt(v, kth_lower)
+        v = v.masked_fill(lower_ignore, -10000)
+
+        v = v.softmax(dim=-1)
+        return v
+
+    def _compute_entropy(self, output):
+        entropy = -torch.sum(output.exp() * output, -1)
+        return entropy

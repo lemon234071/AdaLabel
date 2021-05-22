@@ -108,6 +108,7 @@ class Translator(object):
             fields,
             src_reader,
             tgt_reader,
+            tokenizer,
             gpu=-1,
             n_best=1,
             min_length=0,
@@ -147,6 +148,8 @@ class Translator(object):
         self._use_cuda = gpu > -1
         self._dev = torch.device("cuda", self._gpu) \
             if self._use_cuda else torch.device("cpu")
+
+        self.tokenizer = tokenizer
 
         self.n_best = n_best
         self.max_length = max_length
@@ -237,6 +240,7 @@ class Translator(object):
             fields,
             src_reader,
             tgt_reader,
+            tokenizer=opt.tokenizer,
             gpu=opt.gpu,
             n_best=opt.n_best,
             min_length=opt.min_length,
@@ -333,7 +337,7 @@ class Translator(object):
 
         xlation_builder = onmt.translate.TranslationBuilder(
             data, self.fields, self.n_best, self.replace_unk, tgt,
-            self.phrase_table
+            self.phrase_table, self.tokenizer
         )
 
         # Statistics

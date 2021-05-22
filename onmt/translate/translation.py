@@ -3,6 +3,7 @@ from __future__ import unicode_literals, print_function
 
 import torch
 from onmt.inputters.text_dataset import TextMultiField
+from transformers import BertTokenizer
 
 
 class TranslationBuilder(object):
@@ -22,7 +23,7 @@ class TranslationBuilder(object):
     """
 
     def __init__(self, data, fields, n_best=1, replace_unk=False,
-                 has_tgt=False, phrase_table=""):
+                 has_tgt=False, phrase_table="", tokenizer=None):
         self.data = data
         self.fields = fields
         self._has_text_src = isinstance(
@@ -32,18 +33,27 @@ class TranslationBuilder(object):
         self.phrase_table = phrase_table
         self.has_tgt = has_tgt
 
+        if tokenizer == "bert":
+            self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        else:
+            self.tokenizer = None
+
     def _build_target_tokens(self, src, src_vocab, src_raw, pred, attn):
         tgt_field = dict(self.fields)["tgt"].base_field
         vocab = tgt_field.vocab
         tokens = []
-        for tok in pred:
-            if tok < len(vocab):
-                tokens.append(vocab.itos[tok])
-            else:
-                tokens.append(src_vocab.itos[tok - len(vocab)])
-            if tokens[-1] == tgt_field.eos_token:
-                tokens = tokens[:-1]
-                break
+        if isinstance(self.tokenizer, BertTokenizer):
+            tokens = self.tokenizer.decode(pred.tolist(), skip_special_tokens=True,
+                                           clean_up_tokenization_spaces=False).split(None)
+        else:
+            for tok in pred:
+                if tok < len(vocab):
+                    tokens.append(vocab.itos[tok])
+                else:
+                    tokens.append(src_vocab.itos[tok - len(vocab)])
+                if tokens[-1] == tgt_field.eos_token:
+                    tokens = tokens[:-1]
+                    break
         if self.replace_unk and attn is not None and src is not None:
             for i in range(len(tokens)):
                 if tokens[i] == tgt_field.unk_token:
@@ -58,8 +68,8 @@ class TranslationBuilder(object):
 
     def from_batch(self, translation_batch):
         batch = translation_batch["batch"]
-        assert(len(translation_batch["gold_score"]) ==
-               len(translation_batch["predictions"]))
+        assert (len(translation_batch["gold_score"]) ==
+                len(translation_batch["predictions"]))
         batch_size = batch.batch_size
 
         preds, pred_score, attn, gold_score, indices = list(zip(

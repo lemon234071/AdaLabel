@@ -6,6 +6,7 @@ import torch
 from torchtext.data import Field, RawField
 
 from onmt.inputters.datareader_base import DataReaderBase
+from transformers import BertTokenizer
 
 
 class TextDataReader(DataReaderBase):
@@ -44,7 +45,7 @@ def text_sort_key(ex):
 
 # mix this with partial
 def _feature_tokenize(
-        string, layer=0, tok_delim=None, feat_delim=None, truncate=None):
+        string, layer=0, tok_delim=None, feat_delim=None, truncate=None, tokenizer=None):
     """Split apart word features (like POS/NER tags) from the tokens.
 
     Args:
@@ -61,7 +62,10 @@ def _feature_tokenize(
         List[str] of tokens.
     """
 
-    tokens = string.split(tok_delim)
+    if tokenizer is not None:
+        tokens = tokenizer.tokenize(string)
+    else:
+        tokens = string.split(tok_delim)
     if truncate is not None:
         tokens = tokens[:truncate]
     if feat_delim is not None:
@@ -173,7 +177,20 @@ def text_fields(**kwargs):
     pad = kwargs.get("pad", "<blank>")
     bos = kwargs.get("bos", "<s>")
     eos = kwargs.get("eos", "</s>")
+    unk = kwargs.get("unk", "<unk>")
     truncate = kwargs.get("truncate", None)
+
+    if kwargs.get("tokenizer", None) is None:
+        tokenizer = None
+    elif kwargs.get("tokenizer", None) == "bert":
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        pad = "[PAD]"
+        bos = "[unused0]"
+        eos = "[SEP]"
+        unk = "[UNK]"
+    else:
+        raise Exception("wrong tokenizer")
+
     fields_ = []
     feat_delim = u"￨" if n_feats > 0 else None
     for i in range(n_feats + 1):
@@ -182,11 +199,12 @@ def text_fields(**kwargs):
             _feature_tokenize,
             layer=i,
             truncate=truncate,
-            feat_delim=feat_delim)
+            feat_delim=feat_delim,
+            tokenizer=tokenizer)
         use_len = i == 0 and include_lengths
         feat = Field(
             init_token=bos, eos_token=eos,
-            pad_token=pad, tokenize=tokenize,
+            pad_token=pad, unk_token=unk, tokenize=tokenize,
             include_lengths=use_len)
         fields_.append((name, feat))
     assert fields_[0][0] == base_name  # sanity check

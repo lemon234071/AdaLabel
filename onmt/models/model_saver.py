@@ -122,6 +122,8 @@ class ModelSaver(ModelSaverBase):
             'opt': self.model_opt,
             'optim': self.optim.state_dict(),
         }
+        if model.bidecoder_generator is not None:
+            checkpoint['bidecoder_generator'] = model.bidecoder_generator.state_dict()
 
         logger.info("Saving checkpoint %s_step_%d.pt" % (self.base_path, step))
         checkpoint_path = '%s_step_%d.pt' % (self.base_path, step)

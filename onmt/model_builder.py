@@ -76,7 +76,7 @@ def build_encoder(opt, embeddings):
     return str2enc[enc_type].from_opt(opt, embeddings)
 
 
-def build_decoder(opt, embeddings):
+def build_decoder(opt, embeddings, bidecoder=False):
     """
     Various decoder dispatcher function.
     Args:
@@ -85,6 +85,8 @@ def build_decoder(opt, embeddings):
     """
     dec_type = "ifrnn" if opt.decoder_type == "rnn" and opt.input_feed \
                else opt.decoder_type
+    if bidecoder:
+        dec_type = "bidecoder"
     return str2dec[dec_type].from_opt(opt, embeddings)
 
 
@@ -162,6 +164,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
     decoder = build_decoder(model_opt, tgt_emb)
 
+    if not hasattr(model_opt, "bidecoder"):
+        model_opt.bidecoder = None
+    bidecoder = build_decoder(model_opt, tgt_emb, bidecoder=True) if model_opt.bidecoder else None
+
     # Build NMTModel(= encoder + decoder).
     if gpu and gpu_id is not None:
         device = torch.device("cuda", gpu_id)
@@ -169,7 +175,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         device = torch.device("cuda")
     elif not gpu:
         device = torch.device("cpu")
-    model = onmt.models.NMTModel(encoder, decoder)
+    model = onmt.models.NMTModel(encoder, decoder, bidecoder)
 
     # Build Generator.
     if not model_opt.copy_attn:
@@ -185,11 +191,21 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
         )
         if model_opt.share_decoder_embeddings:
             generator[0].weight = decoder.embeddings.word_lut.weight
+
+
+        bidecoder_generator = nn.Sequential(
+            nn.Linear(model_opt.dec_rnn_size,
+                      len(fields["tgt"].base_field.vocab)),
+            Cast(torch.float32)
+        ) if model_opt.bidecoder else None
+        if model_opt.bidecoder and model_opt.share_decoder_embeddings:
+            bidecoder_generator[0].weight = bidecoder.embeddings.word_lut.weight
     else:
         tgt_base_field = fields["tgt"].base_field
         vocab_size = len(tgt_base_field.vocab)
         pad_idx = tgt_base_field.vocab.stoi[tgt_base_field.pad_token]
         generator = CopyGenerator(model_opt.dec_rnn_size, vocab_size, pad_idx)
+        bidecoder_generator = None
 
     # Load the model states from checkpoint or initialize them.
     if checkpoint is not None:
@@ -207,12 +223,17 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
 
         model.load_state_dict(checkpoint['model'], strict=False)
         generator.load_state_dict(checkpoint['generator'], strict=False)
+        if model_opt.bidecoder:
+            bidecoder_generator.load_state_dict(checkpoint['bidecoder_generator'], strict=False)
     else:
         if model_opt.param_init != 0.0:
             for p in model.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
             for p in generator.parameters():
                 p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            if model_opt.bidecoder:
+                for p in bidecoder_generator.parameters():
+                    p.data.uniform_(-model_opt.param_init, model_opt.param_init)
         if model_opt.param_init_glorot:
             for p in model.parameters():
                 if p.dim() > 1:
@@ -220,6 +241,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
             for p in generator.parameters():
                 if p.dim() > 1:
                     xavier_uniform_(p)
+            if model_opt.bidecoder:
+                for p in bidecoder_generator.parameters():
+                    if p.dim() > 1:
+                        xavier_uniform_(p)
 
         if hasattr(model.encoder, 'embeddings'):
             model.encoder.embeddings.load_pretrained_vectors(
@@ -229,6 +254,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 model_opt.pre_word_vecs_dec)
 
     model.generator = generator
+    model.bidecoder_generator = bidecoder_generator
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

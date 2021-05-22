@@ -17,12 +17,16 @@ class Statistics(object):
     * elapsed time
     """
 
-    def __init__(self, loss=0, n_words=0, n_correct=0):
+    def __init__(self, loss=0, n_words=0, n_correct=0, bidec_loss=0, bidec_num_correct=0, nll_loss=0):
         self.loss = loss
         self.n_words = n_words
         self.n_correct = n_correct
         self.n_src_words = 0
         self.start_time = time.time()
+
+        self.bidec_loss = bidec_loss
+        self.bidec_num_correct = bidec_num_correct
+        self.nll_loss = nll_loss
 
     @staticmethod
     def all_gather_stats(stat, max_size=4096):
@@ -82,6 +86,10 @@ class Statistics(object):
         self.n_words += stat.n_words
         self.n_correct += stat.n_correct
 
+        self.bidec_loss += stat.bidec_loss
+        self.bidec_num_correct += stat.bidec_num_correct
+        self.nll_loss += stat.nll_loss
+
         if update_n_src_words:
             self.n_src_words += stat.n_src_words
 
@@ -113,13 +121,28 @@ class Statistics(object):
         step_fmt = "%2d" % step
         if num_steps > 0:
             step_fmt = "%s/%5d" % (step_fmt, num_steps)
+        # logger.info(
+        #     ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; " +
+        #      "lr: %7.5f; %3.0f/%3.0f tok/s; %6.0f sec")
+        #     % (step_fmt,
+        #        self.accuracy(),
+        #        self.ppl(),
+        #        self.xent(),
+        #        learning_rate,
+        #        self.n_src_words / (t + 1e-5),
+        #        self.n_words / (t + 1e-5),
+        #        time.time() - start))
         logger.info(
-            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; " +
-             "lr: %7.5f; %3.0f/%3.0f tok/s; %6.0f sec")
+            ("Step %s; acc: %6.2f; ppl: %5.2f; xent: %4.2f; nll_loss: %4.2f; " +
+             " label_acc: %6.2f; label_ppl: %5.2f;" +
+             "lr: %7.7f; %3.0f/%3.0f tok/s; %6.0f sec")
             % (step_fmt,
                self.accuracy(),
                self.ppl(),
                self.xent(),
+               self.nll_loss / self.n_words,
+               100 * (self.bidec_num_correct / self.n_words),
+               math.exp(min(self.bidec_loss / self.n_words, 100)),
                learning_rate,
                self.n_src_words / (t + 1e-5),
                self.n_words / (t + 1e-5),

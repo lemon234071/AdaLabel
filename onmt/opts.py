@@ -294,6 +294,9 @@ def preprocess_opts(parser):
               action=StoreLoggingLevelAction,
               choices=StoreLoggingLevelAction.CHOICES,
               default="0")
+    group.add('--tokenizer', '-tokenizer',
+              type=str, default=None,
+              help="Use Transformers tokenizer, split(None) if None.")
 
     # Options most relevant to speech
     group = parser.add_argument_group('Speech')
@@ -501,6 +504,9 @@ def train_opts(parser):
               help="Step for moving average. "
                    "Default is every update, "
                    "if -average_decay is set.")
+    group.add('--adalab', '-adalab', action="store_true")
+    group.add('--bidecoder', '-bidecoder', action="store_true")
+    group.add('--use_beta', '-use_beta', action="store_true")
 
     # learning rate
     group = parser.add_argument_group('Optimization- Rate')
@@ -565,6 +571,10 @@ def train_opts(parser):
 def translate_opts(parser):
     """ Translation / inference options """
     group = parser.add_argument_group('Model')
+    group.add('--tokenizer', '-tokenizer',
+              type=str, default=None,
+              help="Use Transformers tokenizer, split(None) if None.")
+
     group.add('--model', '-model', dest='models', metavar='MODEL',
               nargs='+', type=str, default=[], required=True,
               help="Path to model .pt file(s). "

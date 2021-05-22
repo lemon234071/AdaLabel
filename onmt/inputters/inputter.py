@@ -67,7 +67,8 @@ def get_fields(
     eos='</s>',
     dynamic_dict=False,
     src_truncate=None,
-    tgt_truncate=None
+    tgt_truncate=None,
+    tokenizer=None
 ):
     """
     Args:
@@ -109,14 +110,16 @@ def get_fields(
                         "include_lengths": True,
                         "pad": pad, "bos": None, "eos": None,
                         "truncate": src_truncate,
-                        "base_name": "src"}
+                        "base_name": "src",
+                        "tokenizer": tokenizer}
     fields["src"] = fields_getters[src_data_type](**src_field_kwargs)
 
     tgt_field_kwargs = {"n_feats": n_tgt_feats,
                         "include_lengths": False,
                         "pad": pad, "bos": bos, "eos": eos,
                         "truncate": tgt_truncate,
-                        "base_name": "tgt"}
+                        "base_name": "tgt",
+                        "tokenizer": tokenizer}
     fields["tgt"] = fields_getters["text"](**tgt_field_kwargs)
 
     indices = Field(use_vocab=False, dtype=torch.long, sequential=False)
@@ -286,6 +289,8 @@ def _build_field_vocab(field, counter, size_multiple=1, **kwargs):
         field.unk_token, field.pad_token, field.init_token, field.eos_token
     ]
     specials = [tok for tok in all_specials if tok is not None]
+    if "[SEP]" in specials:
+        specials = []
     field.vocab = field.vocab_cls(counter, specials=specials, **kwargs)
     if size_multiple > 1:
         _pad_vocab_to_multiple(field.vocab, size_multiple)
@@ -452,6 +457,8 @@ def _merge_field_vocabs(src_field, tgt_field, vocab_size, min_freq,
     merged = sum(
         [src_field.vocab.freqs, tgt_field.vocab.freqs], Counter()
     )
+    if "[SEP]" in specials:
+        specials = []
     merged_vocab = Vocab(
         merged, specials=specials,
         max_size=vocab_size, min_freq=min_freq
