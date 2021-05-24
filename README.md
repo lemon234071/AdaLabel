@@ -1,6 +1,6 @@
-This fork of OpenNMT-py is modified to suppoprt training of the AdaLab method in [Diversifying Dialog Generation via Adaptive Label Smoothing](). The differences can be viewed by comparing the [commits](https://github.com/lemon234071/AdaLab/commit/4b9531943a4e00f1ee8a7f4b8bf3554e2b1e0f41). Note that this paper is developed from a relatively [old version](https://github.com/lemon234071/AdaLab/blob/master/ONMT_README.md) of OpenNMT-py, which was already the latest one at the time we started the project. Therefore, some new advanced features might not be supported. 
+This fork of OpenNMT-py is modified to suppoprt training of the AdaLabel method in [Diversifying Dialog Generation via Adaptive Label Smoothing](). The differences can be viewed by comparing the [commits](https://github.com/lemon234071/AdaLabel/commit/4b9531943a4e00f1ee8a7f4b8bf3554e2b1e0f41). Note that this paper is developed from a relatively [old version](https://github.com/lemon234071/AdaLabel/blob/master/ONMT_README.md) of OpenNMT-py, which was already the latest one at the time we started the project. Therefore, some new advanced features might not be supported. 
 
-# AdaLab: Diversifying Dialog Generation via Adaptive Label Smoothing
+# AdaLabel: Diversifying Dialog Generation via Adaptive Label Smoothing
 
 pytorch implementation
 
@@ -20,9 +20,9 @@ This repo is tested on Ubuntu 16.04, and codes are based on a modified version o
 
 Install other dependecies:
 ```bash
-conda create -n adalab python=3.7.4
-conda activate adalab
-conda install pytorch==1.7.1 torchvision torchaudio cudatoolkit=10.1 -c pytorch -n adalab 
+conda create -n adalabel python=3.7.4
+conda activate adalabel
+conda install pytorch==1.7.1 torchvision torchaudio cudatoolkit=10.1 -c pytorch -n adalabel 
 
 pip install -r requirement.txt
 mkdir checkpoint
