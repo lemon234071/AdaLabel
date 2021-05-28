@@ -115,14 +115,14 @@ def eval(train_path, golden_str, infer_str, freq_threshold, report=False):
     res_dict = {}
     # [[word,...,word],...,[word,...,word]]
     infer = [line.strip().split() for line in infer_str]
-    avg_len = sum([len(x) for x in infer]) / len(infer)
+    avg_len = sum(len(x) for x in infer) / len(infer)
     res_dict["avg_len"] = round(avg_len, 2)
     if report:
         print("avg_len", round(avg_len, 2))
 
     # [[[word,...,word]],...,[[word,...,word]]]
     golden = [[line.strip().split()] for line in golden_str]
-    avg_len_gold = sum([len(x[0]) for x in golden]) / len(golden)
+    avg_len_gold = sum(len(x[0]) for x in golden) / len(golden)
     res_dict["avg_len_gold"] = round(avg_len_gold, 2)
     if report:
         print("avg_len_gold", round(avg_len_gold, 2))
