@@ -91,11 +91,11 @@ def sta_freq(train_path):
     # save_json(vocab, out_vocab_path)
 
 
-def eval_freq(train_path, hyps, refs, data_type, freq_threshold, low_freq=True):
+def eval_freq(train_path, hyps, refs, freq_threshold, low_freq=True):
     # vocab_path = os.path.join(VOCAB_DIR, data_type + "_vocab.json")
     # vocab = load_json(vocab_path)
-    vocab = load_json("E:/git/mine/AdaLab/result/train_tgt_vocab/ost_vocab.json")
-    # vocab = sta_freq(train_path)
+    # vocab = load_json("E:/git/mine/AdaLab/result/train_tgt_vocab/ost_vocab.json")
+    vocab = sta_freq(train_path)
     freq_vocab = {token for token, freq in vocab if freq < freq_threshold} if low_freq \
         else {token for token, freq in vocab if freq > freq_threshold}
     hyps_cnt, hyps_freq_cnt = 0, 0
@@ -111,7 +111,7 @@ def eval_freq(train_path, hyps, refs, data_type, freq_threshold, low_freq=True):
     return hyps_freq_cnt / hyps_cnt, refs_freq_cnt / refs_cnt
 
 
-def eval(train_path, golden_str, infer_str, data_type, freq_threshold, report=False):
+def eval(train_path, golden_str, infer_str, freq_threshold, report=False):
     res_dict = {}
     # [[word,...,word],...,[word,...,word]]
     infer = [line.strip().split() for line in infer_str]
@@ -129,7 +129,6 @@ def eval(train_path, golden_str, infer_str, data_type, freq_threshold, report=Fa
 
     # eval freq
     temp_res = eval_freq(train_path, infer_str, golden_str,
-                         data_type,
                          freq_threshold=freq_threshold,
                          low_freq=True)
     res_dict["resp_freq_ratio"], res_dict["ref_freq_ratio"] = [100 * x for x in temp_res]
@@ -170,14 +169,15 @@ def eval(train_path, golden_str, infer_str, data_type, freq_threshold, report=Fa
 
 
 if __name__ == '__main__':
-    print("make sure BLEU score implementation copied from NLTK 3.4.3")
+    print("The BLEU score calculation script is copied from NLTK 3.4.3")
+    data_path = sys.argv[1]
 
-    train_path = os.path.join(sys.argv[1], "data_daily/tgt-train.txt")
-    golden_path = os.path.join(sys.argv[1], "data_daily/tgt-test.txt")
+    train_path = os.path.join(data_path, "tgt-train.txt")
+    golden_path = os.path.join(data_path, "tgt-test.txt")
+
     infer_path = sys.argv[2]
 
     golden_str = tokenize_by_bert(golden_path)
     infer_str = load_txt(infer_path)
 
-    data_type = "daily"
-    eval(train_path, golden_str, infer_str, data_type, freq_threshold=100, report=True)
+    eval(train_path, golden_str, infer_str, freq_threshold=100, report=True)
