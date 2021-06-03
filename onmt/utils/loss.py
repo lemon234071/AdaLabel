@@ -44,7 +44,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
         criterion = AdaLabLoss(
             len(tgt_field.vocab),
             opt.batch_size, ignore_index=padding_idx, reduction='sum',
-            use_beta=opt.use_beta, eos_index=eos_idx
+            temperature=opt.ada_temp, eos_index=eos_idx
         )
     elif isinstance(model.generator[-1], LogSparsemax):
         criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
@@ -495,7 +495,7 @@ class AdaLabLoss(nn.Module):
     """
 
     def __init__(self, tgt_vocab_size, batch_size, ignore_index=-100, device="cuda", reduction='sum',
-                 use_beta=False, eos_index=3):
+                 temperature=1, eos_index=3):
         self.ignore_index = ignore_index
         self.eos_index = eos_index
         self.tgt_vocab_size = tgt_vocab_size
@@ -505,13 +505,11 @@ class AdaLabLoss(nn.Module):
         self.reduction = reduction
 
         self.step = 0
-        self.temperature = 1.5
+        self.temperature = temperature
         self.top_head = 2
         self.top_tail = 500
         self.margin = 0.2
         self.alpha_param = 2
-        self.beta_param = 0.1
-        self.use_beta = use_beta
         self.topk = 5
 
     def forward(self, output, target, tgt_batch=None, label_scores=None):

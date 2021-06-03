@@ -506,7 +506,8 @@ def train_opts(parser):
                    "if -average_decay is set.")
     group.add('--adalab', '-adalab', action="store_true")
     group.add('--bidecoder', '-bidecoder', action="store_true")
-    group.add('--use_beta', '-use_beta', action="store_true")
+    group.add('--ada_temp', '-ada_temp', type=float, default=1,
+              help="Temperature for v")
 
     # learning rate
     group = parser.add_argument_group('Optimization- Rate')
