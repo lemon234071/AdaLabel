@@ -1,3 +1,4 @@
+#DATA_DIR="data_daily"
 DATA_DIR="data_ost"
 DATASET="bert"
 EMB=512
@@ -9,8 +10,8 @@ SAVESTEPS=1000
 
 python3 train.py -adalab -bidecoder -ada_temp 1 \
   -world_size 1 -gpu_ranks 0 \
-  -log_file ./log_dir/"$DATASET"_transformer_adalab.log -data "$DATA_DIR"/"$DATASET" \
-  -save_model checkpoint/"$DATASET"_trainsformer_adalab \
+  -log_file ./log_dir/"$DATASET"_transformer_adalab_"$DATA_DIR".log -data "$DATA_DIR"/"$DATASET" \
+  -save_model checkpoint/"$DATASET"_trainsformer_adalab_"$DATA_DIR" \
   -train_steps "$STEPS" -save_checkpoint_steps "$SAVESTEPS" -valid_steps "$SAVESTEPS"  -report_every 100 \
   -max_generator_batches 0 -dropout 0.1 -max_grad_norm 1 \
   -encoder_type transformer -decoder_type transformer -position_encoding \
